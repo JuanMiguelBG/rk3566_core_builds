@@ -26,6 +26,26 @@ bitness="$(getconf LONG_BIT)"
 		cp patches/openbor-patch* openbor/.
 	  fi
 
+	 # Ensure dependencies are installed and available
+     neededlibs=( libvpx-dev )
+     updateapt="N"
+     for libs in "${neededlibs[@]}"
+     do
+          dpkg -s "${libs}" &>/dev/null
+          if [[ $? != "0" ]]; then
+           if [[ "$updateapt" == "N" ]]; then
+            apt-get -y update
+            updateapt="Y"
+           fi
+           apt-get -y install "${libs}"
+           if [[ $? != "0" ]]; then
+            echo " "
+            echo "Could not install needed library ${libs}.  Stopping here so this can be reviewed."
+            exit 1
+           fi
+          fi
+     done
+
 	 cd openbor/
 	 
 	 openbor_patches=$(find *.patch)

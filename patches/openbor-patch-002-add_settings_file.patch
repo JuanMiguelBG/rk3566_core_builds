@@ -1,0 +1,449 @@
+diff --git a/engine/Makefile b/engine/Makefile
+index 7c0c953e..eb1b7309 100644
+--- a/engine/Makefile
++++ b/engine/Makefile
+@@ -515,7 +515,8 @@ WEBM 	       += source/webmlib/vidplay.o
+ endif
+ 
+ 
+-MAIN            = openbor.o					                                                \
++MAIN            = settings.o				                                                \
++                  openbor.o					                                                \
+                   openborscript.o
+ 
+ OBJS            = $(MAIN)                                                                           \
+diff --git a/engine/openbor.c b/engine/openbor.c
+index 74ad4418..0ab2d175 100644
+--- a/engine/openbor.c
++++ b/engine/openbor.c
+@@ -11,6 +11,7 @@
+ //	Side-scrolling beat-'em-up                                              //
+ /////////////////////////////////////////////////////////////////////////////
+ 
++#include "settings.h"
+ #include "openbor.h"
+ #include "commands.h"
+ #include "models.h"
+@@ -2495,7 +2496,7 @@ void savesettings()
+     {
+         return;
+     }
+-    fwrite(&savedata, 1, sizeof(savedata), handle);
++    serialize_config(handle);
+     fclose(handle);
+ 
+     // save controls
+@@ -2521,7 +2522,7 @@ void saveasdefault()
+     {
+         return;
+     }
+-    fwrite(&savedata, 1, sizeof(savedata), handle);
++    serialize_config(handle);
+     fclose(handle);
+ 
+     // save controls
+@@ -2555,7 +2556,7 @@ void loadsettings()
+     {
+         return;
+     }
+-    fread(&savedata, 1, sizeof(savedata), handle);
++    deserialize_config(handle);
+     fclose(handle);
+     if(savedata.compatibleversion != COMPATIBLEVERSION)
+     {
+@@ -2588,7 +2589,7 @@ void loadfromdefault()
+     {
+         return;
+     }
+-    fread(&savedata, 1, sizeof(savedata), handle);
++    deserialize_config(handle);
+     fclose(handle);
+     if(savedata.compatibleversion != COMPATIBLEVERSION)
+     {
+@@ -35048,6 +35049,9 @@ void update(int ingame, int usevwait)
+         }
+     }
+ 
++    if ((player[0].keys & (FLAG_START | FLAG_ESC)) == (FLAG_START | FLAG_ESC))
++      exit(0);
++
+     // 2011/10/22 UT: move pause menu logic here
+     /*if(ingame == 1 && !_pause && !nopause &&
+             ((player[0].ent && (player[0].newkeys & FLAG_START)) ||
+@@ -35228,7 +35232,7 @@ void apply_controls()
+ 
+     for(p = 0; p < MAX_PLAYERS; p++)
+     {
+-        control_setkey(playercontrolpointers[p], FLAG_ESC,        CONTROL_ESC);
++        control_setkey(playercontrolpointers[p], FLAG_ESC,        savedata.keys[p][SDID_ESC]);
+         control_setkey(playercontrolpointers[p], FLAG_MOVEUP,     savedata.keys[p][SDID_MOVEUP]);
+         control_setkey(playercontrolpointers[p], FLAG_MOVEDOWN,   savedata.keys[p][SDID_MOVEDOWN]);
+         control_setkey(playercontrolpointers[p], FLAG_MOVELEFT,   savedata.keys[p][SDID_MOVELEFT]);
+@@ -39822,7 +39826,7 @@ void openborMain(int argc, char **argv)
+                 started = 0;
+             }
+ 
+-            if(bothnewkeys & FLAG_ESC)
++            if((bothnewkeys & (FLAG_ESC | FLAG_START)) == (FLAG_ESC | FLAG_START))
+             {
+                 quit = 1;
+             }
+diff --git a/engine/sdl/control.h b/engine/sdl/control.h
+index 9e18f141..7424686c 100644
+--- a/engine/sdl/control.h
++++ b/engine/sdl/control.h
+@@ -13,8 +13,8 @@
+ #include <stdint.h>
+ 
+ // 32 is an arbitrary number larger than the number of input devices that will ever be available
+-#define MAX_DEVICES                32
+-#define CONTROL_DEVICE_NAME_SIZE   64
++#define MAX_DEVICES                5
++#define CONTROL_DEVICE_NAME_SIZE   128
+ 
+ typedef struct {
+     int deviceID;
+diff --git a/engine/sdl/menu.c b/engine/sdl/menu.c
+index de60c0c2..1c180cf5 100644
+--- a/engine/sdl/menu.c
++++ b/engine/sdl/menu.c
+@@ -58,8 +58,8 @@ static s_screen* logscreen;
+ #define LOG_SCREEN_END (isWide ? 26 : 23)
+ 
+ static int bpp = 32;
+-static int isWide = 0;
+-static int isFull = 0;
++static int isWide = 1;
++static int isFull = 1;
+ static int dListTotal;
+ static int dListCurrentPosition;
+ static int dListScrollPosition;
+@@ -67,7 +67,7 @@ static int which_logfile = OPENBOR_LOG;
+ static FILE *bgmFile = NULL;
+ static unsigned int bgmPlay = 0, bgmLoop = 0, bgmCycle = 0, bgmCurrent = 0, bgmStatus = 0;
+ static fileliststruct *filelist;
+-extern u32 bothkeys, bothnewkeys;
++extern u64 bothkeys, bothnewkeys;
+ extern const s_drawmethod plainmethod;
+ 
+ typedef struct{
+diff --git a/engine/sdl/sdlport.c b/engine/sdl/sdlport.c
+index 0d4c7f7d..c9d7079d 100644
+--- a/engine/sdl/sdlport.c
++++ b/engine/sdl/sdlport.c
+@@ -27,10 +27,10 @@ char packfile[MAX_FILENAME_LEN] = {"bor.pak"};
+ #include <unistd.h>
+ char rootDir[MAX_BUFFER_LEN] = {""};
+ #endif
+-char paksDir[MAX_FILENAME_LEN] = {"Paks"};
+-char savesDir[MAX_FILENAME_LEN] = {"Saves"};
+-char logsDir[MAX_FILENAME_LEN] = {"Logs"};
+-char screenShotsDir[MAX_FILENAME_LEN] = {"ScreenShots"};
++char paksDir[MAX_FILENAME_LEN] = {"/roms/openbor"};
++char savesDir[MAX_FILENAME_LEN] = {""};
++char logsDir[MAX_FILENAME_LEN] = {"/roms/logs"};
++char screenShotsDir[MAX_FILENAME_LEN] = {""};
+ 
+ // sleeps for the given number of microseconds
+ #if _POSIX_C_SOURCE >= 199309L
+@@ -130,6 +130,13 @@ int main(int argc, char *argv[])
+     }
+ 	dirExists(rootDir, 1);
+     chdir(rootDir);
++#else
++
++    strcpy(savesDir, getenv("OPENBOR_HOME"));
++    strcat(savesDir, "/Saves");
++    strcpy(screenShotsDir, getenv("OPENBOR_HOME"));
++    strcat(screenShotsDir, "/ScreenShots");
++
+ #endif
+ 
+ 	dirExists(paksDir, 1);
+diff --git a/engine/settings.c b/engine/settings.c
+new file mode 100644
+index 00000000..402940ea
+--- /dev/null
++++ b/engine/settings.c
+@@ -0,0 +1,169 @@
++#include "settings.h"
++
++#include <stdlib.h>
++#include <stdbool.h>
++#include <string.h>
++#include <openbor.h>
++
++static bool LoadIntLine(char* line, const char* key, int* value)
++{
++  int l = (int)strlen(key);
++  if (strncmp(line, key, l) == 0)
++    if (line[l] == '=')
++    {
++      *value = (int)strtol(line + l + 1, NULL, 10);
++      return true;
++    }
++
++  return false;
++}
++
++static bool LoadFloatLine(char* line, const char* key, float* value)
++{
++  int l = (int)strlen(key);
++  if (strncmp(line, key, l) == 0)
++    if (line[l] == '=')
++    {
++      *value = strtof(line + l + 1, NULL);
++      return true;
++    }
++
++  return false;
++}
++
++static void SaveIntLine(FILE* file, const char* key, int value)
++{
++  char buffer[2048];
++  snprintf(buffer, sizeof(buffer), "%s=%d\n", key, value);
++  fputs(buffer, file);
++}
++
++static void SaveFloatLine(FILE* file, const char* key, float value)
++{
++  char buffer[2048];
++  snprintf(buffer, sizeof(buffer), "%s=%f\n", key, value);
++  fputs(buffer, file);
++}
++
++bool StartsWith(const char *str, const char *base)
++{
++  return strncmp(str, base, strlen(base)) == 0;
++}
++
++void serialize_config(FILE* tofile)
++{
++  SaveIntLine(tofile, "CompatibleVersion", (int)savedata.compatibleversion);
++  SaveIntLine(tofile, "Gamma", savedata.gamma);
++  SaveIntLine(tofile, "Brightness", savedata.brightness);
++  SaveIntLine(tofile, "SoundVolume", savedata.soundvol);
++  SaveIntLine(tofile, "PlayMusic", savedata.usemusic);
++  SaveIntLine(tofile, "MusicVolume", savedata.musicvol);
++  SaveIntLine(tofile, "EffectVolume", savedata.effectvol);
++  SaveIntLine(tofile, "UseJoystick", savedata.usejoy);
++  SaveIntLine(tofile, "Mode", savedata.mode);
++  SaveIntLine(tofile, "WindowPosition", savedata.windowpos);
++  SaveIntLine(tofile, "ShowTitles", savedata.showtitles);
++  SaveIntLine(tofile, "NTSC", savedata.videoNTSC);
++  SaveIntLine(tofile, "SoftwareFilter", savedata.swfilter);
++  SaveIntLine(tofile, "Logo", savedata.logo);
++  SaveIntLine(tofile, "UseLogs", savedata.uselog);
++  SaveIntLine(tofile, "DebugInfo", savedata.debuginfo);
++  SaveIntLine(tofile, "FullScreen", savedata.fullscreen);
++  SaveIntLine(tofile, "PixelPefect", savedata.stretch ? 0 : 1);
++  SaveIntLine(tofile, "VSync", savedata.vsync);
++
++  for(int i=MAX_PLAYERS; --i >= 0;)
++  {
++    char keyname[2048];
++    snprintf(keyname, sizeof(keyname), "JoystickRumble-P%d", i);            SaveIntLine(tofile, keyname, savedata.joyrumble[i]);
++    snprintf(keyname, sizeof(keyname), "JoystickButton-P%d-ATTACK", i);     SaveIntLine(tofile, keyname, savedata.keys[i][SDID_ATTACK]);
++    snprintf(keyname, sizeof(keyname), "JoystickButton-P%d-ATTACK2", i);    SaveIntLine(tofile, keyname, savedata.keys[i][SDID_ATTACK2]);
++    snprintf(keyname, sizeof(keyname), "JoystickButton-P%d-ATTACK3", i);    SaveIntLine(tofile, keyname, savedata.keys[i][SDID_ATTACK3]);
++    snprintf(keyname, sizeof(keyname), "JoystickButton-P%d-ATTACK4", i);    SaveIntLine(tofile, keyname, savedata.keys[i][SDID_ATTACK4]);
++    snprintf(keyname, sizeof(keyname), "JoystickButton-P%d-HOTKEY", i);     SaveIntLine(tofile, keyname, savedata.keys[i][SDID_ESC]);
++    snprintf(keyname, sizeof(keyname), "JoystickButton-P%d-JUMP", i);       SaveIntLine(tofile, keyname, savedata.keys[i][SDID_JUMP]);
++    snprintf(keyname, sizeof(keyname), "JoystickButton-P%d-MOVEUP", i);     SaveIntLine(tofile, keyname, savedata.keys[i][SDID_MOVEUP]);
++    snprintf(keyname, sizeof(keyname), "JoystickButton-P%d-MOVEDOWN", i);   SaveIntLine(tofile, keyname, savedata.keys[i][SDID_MOVEDOWN]);
++    snprintf(keyname, sizeof(keyname), "JoystickButton-P%d-MOVELEFT", i);   SaveIntLine(tofile, keyname, savedata.keys[i][SDID_MOVELEFT]);
++    snprintf(keyname, sizeof(keyname), "JoystickButton-P%d-MOVERIGHT", i);  SaveIntLine(tofile, keyname, savedata.keys[i][SDID_MOVERIGHT]);
++    snprintf(keyname, sizeof(keyname), "JoystickButton-P%d-SCREENSHOT", i); SaveIntLine(tofile, keyname, savedata.keys[i][SDID_SCREENSHOT]);
++    snprintf(keyname, sizeof(keyname), "JoystickButton-P%d-SPECIAL", i);    SaveIntLine(tofile, keyname, savedata.keys[i][SDID_SPECIAL]);
++    snprintf(keyname, sizeof(keyname), "JoystickButton-P%d-START", i);      SaveIntLine(tofile, keyname, savedata.keys[i][SDID_START]);
++
++  }
++
++  #if SDL
++  SaveIntLine(tofile, "UseOpenGL", savedata.usegl);
++  SaveIntLine(tofile, "HardwareFilter", savedata.hwfilter);
++  SaveFloatLine(tofile, "HardwareScale", savedata.hwscale);
++  #endif
++}
++
++void deserialize_config(FILE* fromfile)
++{
++  char Line[2048];
++
++  clearsettings();
++
++  while(fgets(Line, sizeof(Line), fromfile) != NULL)
++  {
++    int version;
++    if (LoadIntLine(Line, "CompatibleVersion", &version))
++    {
++      savedata.compatibleversion = (int)version;
++      continue;
++    }
++    if (LoadIntLine(Line, "Gamma", &savedata.gamma)) continue;
++    if (LoadIntLine(Line, "Brightness", &savedata.brightness)) continue;
++    if (LoadIntLine(Line, "SoundVolume", &savedata.soundvol)) continue;
++    if (LoadIntLine(Line, "PlayMusic", &savedata.usemusic)) continue;
++    if (LoadIntLine(Line, "MusicVolume", &savedata.musicvol)) continue;
++    if (LoadIntLine(Line, "EffectVolume", &savedata.effectvol)) continue;
++    if (LoadIntLine(Line, "UseJoystick", &savedata.usejoy)) continue;
++    if (LoadIntLine(Line, "Mode", &savedata.mode)) continue;
++    if (LoadIntLine(Line, "WindowPosition", &savedata.windowpos)) continue;
++    if (LoadIntLine(Line, "ShowTitles", &savedata.showtitles)) continue;
++    if (LoadIntLine(Line, "NTSC", &savedata.videoNTSC)) continue;
++    if (LoadIntLine(Line, "SoftwareFilter", &savedata.swfilter)) continue;
++    if (LoadIntLine(Line, "Logo", &savedata.logo)) continue;
++    if (LoadIntLine(Line, "UseLogs", &savedata.uselog)) continue;
++    if (LoadIntLine(Line, "DebugInfo", &savedata.debuginfo)) continue;
++    if (LoadIntLine(Line, "FullScreen", &savedata.fullscreen)) continue;
++    if (LoadIntLine(Line, "PixelPefect", &savedata.stretch))
++    {
++      savedata.stretch = savedata.stretch ? 0 : 1; // Inverse
++      continue;
++    }
++    if (LoadIntLine(Line, "VSync", &savedata.vsync)) continue;
++
++    if (StartsWith(Line, "Joystick"))
++    for(int i=MAX_PLAYERS; --i >= 0;)
++    {
++      char keyname[2048];
++      snprintf(keyname, sizeof(keyname), "JoystickRumble-P%d", i);
++      if (LoadIntLine(Line, keyname, &savedata.joyrumble[i])) continue;
++      if (StartsWith(Line, "JoystickButton"))
++      {
++        snprintf(keyname, sizeof(keyname), "JoystickButton-P%d-ATTACK", i);     LoadIntLine(Line, keyname, &savedata.keys[i][SDID_ATTACK]);
++        snprintf(keyname, sizeof(keyname), "JoystickButton-P%d-ATTACK2", i);    LoadIntLine(Line, keyname, &savedata.keys[i][SDID_ATTACK2]);
++        snprintf(keyname, sizeof(keyname), "JoystickButton-P%d-ATTACK3", i);    LoadIntLine(Line, keyname, &savedata.keys[i][SDID_ATTACK3]);
++        snprintf(keyname, sizeof(keyname), "JoystickButton-P%d-ATTACK4", i);    LoadIntLine(Line, keyname, &savedata.keys[i][SDID_ATTACK4]);
++        snprintf(keyname, sizeof(keyname), "JoystickButton-P%d-HOTKEY", i);     LoadIntLine(Line, keyname, &savedata.keys[i][SDID_ESC]);
++        snprintf(keyname, sizeof(keyname), "JoystickButton-P%d-JUMP", i);       LoadIntLine(Line, keyname, &savedata.keys[i][SDID_JUMP]);
++        snprintf(keyname, sizeof(keyname), "JoystickButton-P%d-MOVEUP", i);     LoadIntLine(Line, keyname, &savedata.keys[i][SDID_MOVEUP]);
++        snprintf(keyname, sizeof(keyname), "JoystickButton-P%d-MOVEDOWN", i);   LoadIntLine(Line, keyname, &savedata.keys[i][SDID_MOVEDOWN]);
++        snprintf(keyname, sizeof(keyname), "JoystickButton-P%d-MOVELEFT", i);   LoadIntLine(Line, keyname, &savedata.keys[i][SDID_MOVELEFT]);
++        snprintf(keyname, sizeof(keyname), "JoystickButton-P%d-MOVERIGHT", i);  LoadIntLine(Line, keyname, &savedata.keys[i][SDID_MOVERIGHT]);
++        snprintf(keyname, sizeof(keyname), "JoystickButton-P%d-SCREENSHOT", i); LoadIntLine(Line, keyname, &savedata.keys[i][SDID_SCREENSHOT]);
++        snprintf(keyname, sizeof(keyname), "JoystickButton-P%d-SPECIAL", i);    LoadIntLine(Line, keyname, &savedata.keys[i][SDID_SPECIAL]);
++        snprintf(keyname, sizeof(keyname), "JoystickButton-P%d-START", i);      LoadIntLine(Line, keyname, &savedata.keys[i][SDID_START]);
++      }
++    }
++
++    #if SDL
++      if (LoadIntLine(Line, "UseOpenGL", &savedata.usegl)) continue;
++      if (LoadIntLine(Line, "HardwareFilter", &savedata.hwfilter)) continue;
++      if (LoadFloatLine(Line, "HardwareScale", &savedata.hwscale)) continue;
++    #endif
++  }
++}
+diff --git a/engine/settings.h b/engine/settings.h
+new file mode 100644
+index 00000000..e989921e
+--- /dev/null
++++ b/engine/settings.h
+@@ -0,0 +1,11 @@
++#ifndef OPENBOR_SETTINGS_H
++#define OPENBOR_SETTINGS_H
++
++#include "source/savedata.h"
++#include "stdio.h"
++
++void serialize_config(FILE* tofile);
++
++void deserialize_config(FILE* fromfile);
++
++#endif //OPENBOR_SETTINGS_H
+diff --git a/engine/source/openborscript/scriptcommon.h b/engine/source/openborscript/scriptcommon.h
+index 0339f19d..2c18b532 100644
+--- a/engine/source/openborscript/scriptcommon.h
++++ b/engine/source/openborscript/scriptcommon.h
+@@ -91,30 +91,30 @@ extern s_level        *level;
+ extern s_filestream   *filestreams;
+ extern int			  numfilestreams;
+ extern entity         *self;
+-extern int            *animspecials;
+-extern int            *animattacks;
+-extern int            *animfollows;
+-extern int            *animpains;
+-extern int            *animfalls;
+-extern int            *animrises;
+-extern int            *animriseattacks;
+-extern int            *animdies;
+-extern int            *animidles;
+-extern int            *animwalks;
+-extern int            *animbackwalks;
+-extern int            *animups;
+-extern int            *animdowns;
+-extern int            *animbackpains;
+-extern int            *animbackfalls;
+-extern int            *animbackdies;
+-extern int            *animbackrises;
+-extern int            *animbackriseattacks;
+-extern int            *animblkpains;
+-extern int            *animbackblkpains;
++extern e_animations   *animspecials;
++extern e_animations   *animattacks;
++extern e_animations   *animfollows;
++extern e_animations   *animpains;
++extern e_animations   *animfalls;
++extern e_animations   *animrises;
++extern e_animations   *animriseattacks;
++extern e_animations   *animdies;
++extern e_animations   *animidles;
++extern e_animations   *animwalks;
++extern e_animations   *animbackwalks;
++extern e_animations   *animups;
++extern e_animations   *animdowns;
++extern e_animations   *animbackpains;
++extern e_animations   *animbackfalls;
++extern e_animations   *animbackdies;
++extern e_animations   *animbackrises;
++extern e_animations   *animbackriseattacks;
++extern e_animations   *animblkpains;
++extern e_animations   *animbackblkpains;
+ 
+ extern int            noshare;
+ extern int            credits;
+-extern char           musicname[128];
++extern char           musicname[];
+ extern float          musicfade[2];
+ extern int            musicloop;
+ extern u32            musicoffset;
+diff --git a/engine/source/utils.c b/engine/source/utils.c
+index f9e071e6..db6c75fb 100644
+--- a/engine/source/utils.c
++++ b/engine/source/utils.c
+@@ -95,12 +95,16 @@ typedef void DIR;
+ #define COPY_ROOT_PATH(buf, name) strncpy(buf, rootDir, strlen(rootDir)); strncat(buf, name, strlen(name)); strncat(buf, "/", 1);
+ #define COPY_PAKS_PATH(buf, name) strncpy(buf, paksDir, strlen(paksDir)); strncat(buf, "/", 1); strncat(buf, name, strlen(name));
+ #else
+-#define CHECK_LOGFILE(type)  type ? fileExists("./Logs/OpenBorLog.txt") : fileExists("./Logs/ScriptLog.txt")
+-#define OPEN_LOGFILE(type)   type ? fopen("./Logs/OpenBorLog.txt", "wt") : fopen("./Logs/ScriptLog.txt", "wt")
+-#define APPEND_LOGFILE(type) type ? fopen("./Logs/OpenBorLog.txt", "at") : fopen("./Logs/ScriptLog.txt", "at")
+-#define READ_LOGFILE(type)   type ? fopen("./Logs/OpenBorLog.txt", "rt") : fopen("./Logs/ScriptLog.txt", "rt")
+-#define COPY_ROOT_PATH(buf, name) strcpy(buf, "./"); strcat(buf, name); strcat(buf, "/");
+-#define COPY_PAKS_PATH(buf, name) strcpy(buf, "./Paks/"); strcat(buf, name);
++
++#include <stdlib.h>
++
++#define CHECK_LOGFILE(type)  type ? fileExists("/roms/logs/OpenBorLog.txt") : fileExists("/roms/logs/OpenBorScriptLog.txt")
++#define OPEN_LOGFILE(type)   type ? fopen("/roms/logs/OpenBorLog.txt", "wt") : fopen("/roms/logs/OpenBorScriptLog.txt", "wt")
++#define APPEND_LOGFILE(type) type ? fopen("/roms/logs/OpenBorLog.txt", "at") : fopen("/roms/logs/OpenBorScriptLog.txt", "at")
++#define READ_LOGFILE(type)   type ? fopen("/roms/logs/OpenBorLog.txt", "rt") : fopen("/roms/logs/OpenBorScriptLog.txt", "rt")
++#define COPY_ROOT_PATH(buf, name) strcpy(buf, getenv("OPENBOR_HOME")); strcat(buf, "/"); strcat(buf, name); strcat(buf, "/");
++#define COPY_PAKS_PATH(buf, name) strcpy(buf, "/roms/openbor/"); strcat(buf, name);
++
+ #endif
+ 
+ void debugBuf(unsigned char *buf, size_t size, int columns)
+diff --git a/engine/source/webmlib/samplecvt.c b/engine/source/webmlib/samplecvt.c
+index 275fcd6e..6ec9378f 100644
+--- a/engine/source/webmlib/samplecvt.c
++++ b/engine/source/webmlib/samplecvt.c
+@@ -74,6 +74,7 @@ void pack_samples(float **pcm, short *buffer, int samples, int channels)
+     int i, j;
+     vorbis_fpu_control fpu;
+     vorbis_fpu_setround(&fpu);
++    (void)fpu;
+     for(i=0; i<channels; i++)
+     {
+         float *src = pcm[i];
